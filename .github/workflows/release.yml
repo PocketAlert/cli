@@ -1,23 +1,119 @@
-name: Release
+# Tests the CLI on Linux, macOS and Windows, then builds it with GoReleaser.
+#
+# - Push to main: tests, then releases when the version in VERSION has no
+#   v<version> tag yet. Bump it with scripts/bump-version.sh; pushes that keep
+#   the version only run the tests.
+# - Push a tag like v2.1.0: tests and releases that tag (it must match VERSION).
+# - Pull request or manual run: tests and builds a snapshot, kept as a workflow
+#   artifact without publishing.
+#
+# Secrets: HOMEBREW_TAP_GITHUB_TOKEN (optional) — fine-grained PAT with write access
+# to PocketAlert/homebrew-tap; without it the Homebrew formula is not updated.
+
+name: Build
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+# Releases run one at a time: a queued run sees the tag the previous one created
+# and skips. A new push to a pull request cancels its previous run.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  goreleaser:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      build: ${{ steps.plan.outputs.build }}
+      publish: ${{ steps.plan.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
+          fetch-depth: 0 # tags decide whether this version is already released
+
+      - id: plan
+        run: |
+          file_version="$(tr -d '[:space:]' < VERSION)"
+          version="$file_version"
+          build=true
+          publish=true
+          case "$GITHUB_EVENT_NAME/$GITHUB_REF_TYPE" in
+            workflow_dispatch/* | pull_request/*)
+              publish=false
+              ;;
+            push/tag)
+              version="${GITHUB_REF_NAME#v}"
+              [[ "$version" == "$file_version" ]] \
+                || { echo "::error::Tag v$version does not match VERSION $file_version. Use scripts/bump-version.sh"; exit 1; }
+              ;;
+            *)
+              if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+                echo "::notice::v$version is already released. Run scripts/bump-version.sh to publish a new release."
+                build=false
+                publish=false
+              fi
+              ;;
+          esac
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "::error::Version must look like 1.2.3, got '$version'"; exit 1; }
+          {
+            echo "version=$version"
+            echo "build=$build"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          echo "version=$version build=$build publish=$publish"
+
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
-      - uses: goreleaser/goreleaser-action@v6
+          go-version: stable
+      - run: go vet ./...
+      - run: go test -race ./...
+        if: runner.os != 'Windows'
+      - run: go test ./...
+        if: runner.os == 'Windows'
+
+  release:
+    needs: [plan, test]
+    if: needs.plan.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # GoReleaser builds the changelog from the previous tag
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      # GoReleaser takes the version from a tag on HEAD. On a push to main the tag
+      # exists only locally: GitHub creates it on this commit together with the
+      # release, so a failed build leaves no tag behind and the next push retries.
+      - name: Tag commit locally
+        if: needs.plan.outputs.publish == 'true' && github.ref_type != 'tag'
+        run: git tag "v$VERSION" "$GITHUB_SHA"
+
+      - name: Publish release
+        if: needs.plan.outputs.publish == 'true'
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
@@ -25,3 +121,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - name: Build snapshot
+        if: needs.plan.outputs.publish != 'true'
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: Keep archives as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pocketalert-${{ env.VERSION }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt

@@ -158,11 +158,16 @@ make build       # ./pocketalert
 make snapshot    # local GoReleaser build into dist/
 ```
 
-Releases are built by GoReleaser when a `v*` tag is pushed:
+One workflow, `.github/workflows/release.yml`, runs the tests on Linux, macOS and Windows and then builds with GoReleaser:
 
-```bash
-git tag v2.0.0 && git push origin v2.0.0
-```
+- **Push to main** — releases `v<VERSION>` when that tag does not exist yet. Bump it first:
+  ```bash
+  scripts/bump-version.sh minor      # or patch, major, 2.1.0
+  git commit -am "chore: release v2.1.0" && git push
+  ```
+  Pushes that keep the version only run the check.
+- **Push a tag** `v2.1.0` — releases that tag; it must match `VERSION`.
+- **Pull request or manual run** — tests and builds a snapshot, attached to the run as an artifact, without publishing.
 
 ## License
 

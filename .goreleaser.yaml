@@ -6,7 +6,6 @@ project_name: pocketalert
 before:
   hooks:
     - go mod tidy
-    - go test ./...
 
 builds:
   - id: pocketalert
@@ -40,7 +39,9 @@ checksum:
   name_template: checksums.txt
 
 changelog:
-  use: github
+  # Local git, not the GitHub API: on a push to main the release tag exists only
+  # in the runner until the release creates it, so a compare call would 404.
+  use: git
   sort: asc
   filters:
     exclude:
@@ -74,6 +75,9 @@ release:
   github:
     owner: PocketAlert
     name: cli
+  # On a push to main the tag doesn't exist on GitHub yet; the release creates it
+  # on the exact commit that was built.
+  target_commitish: "{{ .FullCommit }}"
   footer: |
     **Install:** `curl -fsSL https://raw.githubusercontent.com/PocketAlert/cli/main/install.sh | sh`
     or download an archive below. Docs: https://info.pocketalert.app/cli
