@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+- Interactive mode: `pocketalert ui`. Inbox with search, unread filter, auto-refresh and a preview pane; message composer with app, device, level, scheduling, image and actions; scheduled messages, applications, devices and webhooks (with request history) in one place.
+
 ## 2.0.0
 
 First release from the standalone repository, built and published by GoReleaser.

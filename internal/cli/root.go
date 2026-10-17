@@ -71,6 +71,7 @@ applications, devices, webhooks and API keys.
 Get started:
   pocketalert auth                 # paste your API key
   pocketalert send "Deploy done" "v1.4.2 is live"
+  pocketalert ui                   # interactive mode
 
 In CI, set POCKETALERT_API_KEY instead of running auth.
 Docs: https://info.pocketalert.app/cli`,
@@ -102,7 +103,7 @@ Docs: https://info.pocketalert.app/cli`,
 			root.AddCommand(c)
 		}
 	}
-	add("notify", a.sendCmd(), a.execCmd(), a.watchCmd(), a.messagesCmd(), a.scheduledCmd())
+	add("notify", a.uiCmd(), a.sendCmd(), a.execCmd(), a.watchCmd(), a.messagesCmd(), a.scheduledCmd())
 	add("manage", a.appsCmd(), a.devicesCmd(), a.webhooksCmd(), a.formsCmd(), a.apikeysCmd())
 	add("account", a.authCmd(), a.logoutCmd(), a.profileCmd(), a.usageCmd(), a.configCmd())
 	root.AddCommand(a.versionCmd())
